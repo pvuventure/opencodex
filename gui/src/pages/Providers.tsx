@@ -180,7 +180,7 @@ export default function Providers({ apiBase }: { apiBase: string }) {
   });
   const {
     accountSets, setAccountSets, accountLoadStates, switchingAccount, keyPools, fetchAccountSets,
-    switchAccount, switchApiKey, removeApiKey, addApiKeyValue, editCredentialAlias,
+    fetchKeyPools, switchAccount, switchApiKey, removeApiKey, addApiKeyValue, editCredentialAlias,
     removeAccount, activeAccountNeedsReauth,
   } = pools;
   const jsonEditor = useJsonConfigEditor({
@@ -375,6 +375,9 @@ export default function Providers({ apiBase }: { apiBase: string }) {
               onSwitchApiKey: switchApiKey,
               onRemoveApiKey: removeApiKey,
               onEditAlias: editCredentialAlias,
+              onRefreshKeys: async provider => {
+                await fetchKeyPools(Object.keys(keyPools).includes(provider) ? Object.keys(keyPools) : [...Object.keys(keyPools), provider]);
+              },
             }}
             isDefault={item.name === config.defaultProvider}
             onRemoveProvider={removeProvider}
