@@ -689,6 +689,8 @@ export const ja: Record<TKey, string> = {
   "logs.detail.attempt.recovery.connectionReset": "接続がリセットされました",
   "logs.detail.attempt.recovery.oauth401": "OAuth 再認証",
   "logs.detail.attempt.recovery.key429": "キーがレート制限 (429)",
+  "logs.detail.attempt.recovery.keyQuota": "キーのクォータを使い切りました",
+  "logs.detail.attempt.recovery.keyAuth": "キーが無効または未認可",
   "logs.detail.attempt.recovery.rateLimit429": "レート制限 (429)",
   "logs.detail.attempt.recovery.anthropicOauth429": "Anthropic OAuth レート制限 (429)",
   "logs.detail.attempt.recovery.image413": "画像ペイロードが大きすぎます (413)",

@@ -725,6 +725,8 @@ export const zh: Record<TKey, string> = {
   "logs.detail.attempt.recovery.connectionReset": "连接已重置",
   "logs.detail.attempt.recovery.oauth401": "OAuth 重新认证",
   "logs.detail.attempt.recovery.key429": "密钥被限流 (429)",
+  "logs.detail.attempt.recovery.keyQuota": "密钥配额已耗尽",
+  "logs.detail.attempt.recovery.keyAuth": "密钥无效或未授权",
   "logs.detail.attempt.recovery.rateLimit429": "被限流 (429)",
   "logs.detail.attempt.recovery.anthropicOauth429": "Anthropic OAuth 被限流 (429)",
   "logs.detail.attempt.recovery.image413": "图片载荷过大 (413)",

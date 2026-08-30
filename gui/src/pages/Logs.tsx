@@ -99,6 +99,8 @@ type AttemptRecoveryKind =
   | "connection-reset"
   | "oauth-401"
   | "key-429"
+  | "key-quota"
+  | "key-auth"
   | "rate-limit-429"
   | "anthropic-oauth-429"
   | "image-413"
@@ -281,6 +283,8 @@ const RECOVERY_KIND_KEYS = {
   "connection-reset": "logs.detail.attempt.recovery.connectionReset",
   "oauth-401": "logs.detail.attempt.recovery.oauth401",
   "key-429": "logs.detail.attempt.recovery.key429",
+  "key-quota": "logs.detail.attempt.recovery.keyQuota",
+  "key-auth": "logs.detail.attempt.recovery.keyAuth",
   "rate-limit-429": "logs.detail.attempt.recovery.rateLimit429",
   "anthropic-oauth-429": "logs.detail.attempt.recovery.anthropicOauth429",
   "image-413": "logs.detail.attempt.recovery.image413",

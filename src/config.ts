@@ -517,6 +517,10 @@ const providerConfigSchema = z.object({
     .transform(normalizeNonBlankStringArray)
     .optional(),
   retryOn429: retryOn429PolicySchema.optional(),
+  // Validated for the same reason as codexToolMode below: the schema ends in
+  // `.passthrough()`, so a misspelled strategy would silently degrade to the default
+  // "failover" instead of telling the operator their round-robin never engaged.
+  apiKeyPoolStrategy: z.enum(["failover", "round-robin", "quota-aware"]).optional(),
   codexAccountMode: z.enum(["pool", "direct"]).optional(),
   // Validated rather than passed through: this schema ends in `.passthrough()`, so an
   // undeclared key survives verbatim. A misspelled `codexToolMode` therefore used to be

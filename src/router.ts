@@ -33,6 +33,7 @@ import {
 } from "./providers/openai-tiers";
 import { decodeRoutedModelIdOrThrow, encodeRoutedModelId } from "./providers/slug-codec";
 import { resolveModelAlias } from "./providers/default-aliases";
+import { applyKeyPoolStrategy } from "./providers/key-failover";
 import { getStaleCached } from "./codex/model-cache";
 import { codexAccountNamespaceEntries } from "./codex/account-namespaces";
 import {
@@ -515,7 +516,9 @@ function routeResult(
   const codexAccountMode = providerCodexAccountMode(providerName, provider);
   return {
     providerName,
-    provider: routedProviderConfig(providerName, provider),
+    // Proactive pool strategy (round-robin / quota-aware) picks the key for THIS request
+    // before registry backfill; the default "failover" strategy is a no-op passthrough.
+    provider: routedProviderConfig(providerName, applyKeyPoolStrategy(providerName, provider)),
     modelId,
     routeKind,
     routeReason,

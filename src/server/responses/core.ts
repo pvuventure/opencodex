@@ -206,10 +206,13 @@ import {
 } from "../../providers/registry";
 import type { AdapterRequest, ProviderAdapter } from "../../adapters/base";
 import {
+  classifyKeyPoolFailure,
   hasKeyPoolFailover,
+  keyFailureRecoveryKind,
   rateLimitRetryDelayMs,
   rateLimitRetryPolicyFor,
   rotateProviderTransportOn429,
+  rotateProviderTransportOnFailure,
 } from "../../providers/key-failover";
 import { shouldAttemptImageTierRetry } from "../image-retry";
 import { isXaiResponsesDestination, resolveProviderTransport } from "../../providers/xai-transport";
@@ -5026,6 +5029,13 @@ async function handleResponsesInner(
   // Shared with the terminal-guard continuation below: an image-tier reduction that let the
   // main request clear a 413 must not be forgotten on the very next continuation build.
   let imageTierBias = 0;
+  /**
+   * Pool-entry ids already tried by THIS request's key-failover chain. Request-scoped so
+   * concurrent requests cannot corrupt each other's chains, and strictly monotonic so the
+   * chain is bounded by the pool size even if global cooldowns lapse mid-request. Shared with
+   * the terminal-guard continuation below for the same reason as the 429 retry budget.
+   */
+  const keyFailoverAttemptedIds = new Set<string>();
   if (!upstreamResponse.ok) {
     // Recovery loop: multi-key 429 failover + at most ONE opaque-state rebuild and ONE
     // anthropic 413 tightened retry
@@ -5202,15 +5212,27 @@ async function handleResponsesInner(
         upstreamResponse = result;
       }
 
-      // Multi-key 429 failover: rotate to the next pool key (cooldown-aware) and retry the
-      // SAME request once per remaining key. OAuth/forward providers and single-key pools
-      // return null immediately, so this stays a no-op for them (src/providers/key-failover.ts).
-      while (upstreamResponse.status === 429 && hasKeyPoolFailover(route.provider)) {
-        const rotated = rotateProviderTransportOn429(config, route.providerName, route.provider, {
-          retryAfter: upstreamResponse.headers.get("retry-after"),
+      // Multi-key failover: on a key-attributable failure (429 rate limit, 402 quota, 401
+      // invalid key, key-scoped 403, or a Genspark quota error hidden under another 4xx),
+      // rotate to the next pool key (cooldown-aware) and retry the SAME request once per
+      // remaining key. OAuth/forward providers and single-key pools return null immediately,
+      // so this stays a no-op for them (src/providers/key-failover.ts). Pre-stream only —
+      // the failed status arrived before any bytes were relayed, so the replay is lossless.
+      // `keyFailoverAttemptedIds` bounds the chain: no key is retried twice for this request.
+      while (hasKeyPoolFailover(route.provider)) {
+        const keyFailure = await classifyKeyPoolFailure(
+          upstreamResponse,
+          route.providerName,
+          route.provider,
+          { signal: upstream.signal },
+        );
+        if (!keyFailure) break;
+        const rotated = rotateProviderTransportOnFailure(config, route.providerName, route.provider, {
+          failure: keyFailure,
           now: Date.now(),
           attemptedKey: route.provider.apiKey,
           promptCacheKey: parsed.options.promptCacheKey,
+          attemptedKeyIds: keyFailoverAttemptedIds,
         });
         if (!rotated) break;
         // Release the failed response's socket before retrying; unread bodies otherwise linger
@@ -5228,7 +5250,7 @@ async function handleResponsesInner(
           provider: route.provider,
           adapterName: activeAdapter.name,
         });
-        const result = await rebuildAndRefetch("key-429");
+        const result = await rebuildAndRefetch(keyFailureRecoveryKind(keyFailure));
         if ("failed" in result) return result.failed;
         upstreamResponse = result;
       }
@@ -5592,14 +5614,25 @@ async function handleResponsesInner(
         }
       }
 
-      if (response.status === 429 && hasKeyPoolFailover(route.provider)) {
-        const rotated = rotateProviderTransportOn429(config, route.providerName, route.provider, {
-          retryAfter: response.headers.get("retry-after"),
-          now: Date.now(),
-          attemptedKey: route.provider.apiKey,
-          promptCacheKey: nextParsed.options.promptCacheKey,
-        });
-        if (rotated) {
+      if (!response.ok && hasKeyPoolFailover(route.provider)) {
+        // The continuation replay itself has emitted nothing yet, so a key-attributable
+        // failure (429/402/401/key-403/Genspark quota) may rotate and re-ask losslessly.
+        const continuationKeyFailure = await classifyKeyPoolFailure(
+          response,
+          route.providerName,
+          route.provider,
+          { signal: upstream.signal },
+        );
+        const rotated = continuationKeyFailure
+          ? rotateProviderTransportOnFailure(config, route.providerName, route.provider, {
+            failure: continuationKeyFailure,
+            now: Date.now(),
+            attemptedKey: route.provider.apiKey,
+            promptCacheKey: nextParsed.options.promptCacheKey,
+            attemptedKeyIds: keyFailoverAttemptedIds,
+          })
+          : null;
+        if (rotated && continuationKeyFailure) {
           try { void response.body?.cancel().catch(() => {}); } catch { /* already closed */ }
           route.provider = rotated;
           invalidateSameTargetRequest();
@@ -5621,7 +5654,7 @@ async function handleResponsesInner(
             provider: route.provider,
             adapterName: activeAdapter.name,
           });
-          nextContinuationRecoveryKind = "key-429";
+          nextContinuationRecoveryKind = keyFailureRecoveryKind(continuationKeyFailure);
           continue;
         }
       }

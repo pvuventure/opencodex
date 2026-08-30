@@ -29,10 +29,12 @@ import {
   type TranslatorBudget,
 } from "../lib/translator-budget";
 import {
+  classifyKeyPoolFailure,
   hasKeyPoolFailover,
+  keyFailureRecoveryKind,
   rateLimitRetryDelayMs,
   rateLimitRetryPolicyFor,
-  rotateProviderTransportOn429,
+  rotateProviderTransportOnFailure,
 } from "../providers/key-failover";
 import { fastPolicyForModel } from "../providers/service-tier";
 import type { RouteResult } from "../router";
@@ -202,7 +204,7 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
     return fail(400, error instanceof Error ? error.message : String(error), "invalid_request_error");
   }
 
-  const send = async (request: AdapterRequest, recovery?: "rate-limit-429" | "key-429"): Promise<Response> => {
+  const send = async (request: AdapterRequest, recovery?: "rate-limit-429" | "key-429" | "key-quota" | "key-auth"): Promise<Response> => {
     try {
       return await fetchWithResetRetry(
         (transportRecovery?: UpstreamSendRecovery) => {
@@ -245,12 +247,22 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
       if (upstream.signal.aborted) throw upstream.signal.reason;
       response = await send(activeRequest, "rate-limit-429");
     }
-    while (response.status === 429 && hasKeyPoolFailover(activeProvider)) {
-      const rotated = rotateProviderTransportOn429(config, route.providerName, activeProvider, {
-        retryAfter: response.headers.get("retry-after"),
+    // Multi-key failover: key-attributable failures (429/402/401/key-403/Genspark quota)
+    // rotate to the next pool key and replay the SAME request. Pre-stream only — the failed
+    // status arrived before any bytes were relayed. `attemptedKeyIds` is request-scoped, so
+    // the chain is bounded by the pool size and concurrent requests stay independent.
+    const keyFailoverAttemptedIds = new Set<string>();
+    while (!response.ok && hasKeyPoolFailover(activeProvider)) {
+      const keyFailure = await classifyKeyPoolFailure(response, route.providerName, activeProvider, {
+        signal: upstream.signal,
+      });
+      if (!keyFailure) break;
+      const rotated = rotateProviderTransportOnFailure(config, route.providerName, activeProvider, {
+        failure: keyFailure,
         now: Date.now(),
         attemptedKey: activeProvider.apiKey,
         promptCacheKey: typeof options.chatBody.prompt_cache_key === "string" ? options.chatBody.prompt_cache_key : undefined,
+        attemptedKeyIds: keyFailoverAttemptedIds,
       });
       if (!rotated) break;
       try { void response.body?.cancel().catch(() => {}); } catch { /* already closed */ }
@@ -259,7 +271,7 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
       releaseRetainedRequest();
       activeRequest = buildActiveRequest();
       retainRequest(activeRequest);
-      response = await send(activeRequest, "key-429");
+      response = await send(activeRequest, keyFailureRecoveryKind(keyFailure));
     }
   } catch (error) {
     releaseRetainedRequest();

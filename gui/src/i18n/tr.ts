@@ -737,6 +737,8 @@ export const tr: Record<TKey, string> = {
   "logs.detail.attempt.recovery.connectionReset": "Bağlantı sıfırlandı",
   "logs.detail.attempt.recovery.oauth401": "OAuth yeniden doğrulaması",
   "logs.detail.attempt.recovery.key429": "Anahtar oranı kısıtlandı (429)",
+  "logs.detail.attempt.recovery.keyQuota": "Anahtar kotası tükendi",
+  "logs.detail.attempt.recovery.keyAuth": "Anahtar geçersiz veya yetkisiz",
   "logs.detail.attempt.recovery.rateLimit429": "Oran kısıtlandı (429)",
   "logs.detail.attempt.recovery.anthropicOauth429": "Anthropic OAuth kısıtlandı (429)",
   "logs.detail.attempt.recovery.image413": "Görsel boyutu çok büyük (413)",

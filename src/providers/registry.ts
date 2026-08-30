@@ -1700,6 +1700,10 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
   { id: "ollama", label: "Ollama (local)", adapter: "openai-chat", baseUrl: "http://localhost:11434/v1", authKind: "local", allowPrivateNetworkByDefault: true, allowBaseUrlOverride: true, featured: true, note: "Local — key usually blank" },
   { id: "vllm", label: "vLLM (local)", adapter: "openai-chat", baseUrl: "http://localhost:8000/v1", authKind: "local", allowPrivateNetworkByDefault: true, allowBaseUrlOverride: true, featured: true, note: "Local — key usually blank" },
   { id: "lm-studio", label: "LM Studio (local)", adapter: "openai-chat", baseUrl: "http://localhost:1234/v1", authKind: "local", allowPrivateNetworkByDefault: true, allowBaseUrlOverride: true, featured: true, note: "Local — no key needed" },
+  // Genspark LLM proxy: OpenAI-Chat-compatible, key auth. Pool multiple keys via
+  // `apiKeyPool` for automatic quota/credit failover (src/providers/genspark.ts
+  // classifies its credit-exhaustion error bodies for key rotation).
+  { id: "genspark", label: "Genspark", adapter: "openai-chat", baseUrl: "https://www.genspark.ai/api/llm_proxy/v1", authKind: "key", dashboardUrl: "https://www.genspark.ai" },
   {
     id: "deepseek",
     label: "DeepSeek",

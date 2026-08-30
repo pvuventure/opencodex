@@ -728,6 +728,8 @@ export const fr: Record<TKey, string> = {
   "logs.detail.attempt.recovery.emptyCompletion": "Nouvelle tentative après une réponse vide",
   "logs.detail.attempt.recovery.oauth401": "Réauthentification OAuth",
   "logs.detail.attempt.recovery.key429": "Clé soumise à une limitation de débit (429)",
+  "logs.detail.attempt.recovery.keyQuota": "Quota de la clé épuisé",
+  "logs.detail.attempt.recovery.keyAuth": "Clé invalide ou non autorisée",
   "logs.detail.attempt.recovery.rateLimit429": "Limitation de débit (429)",
   "logs.detail.attempt.recovery.anthropicOauth429": "Limitation de débit OAuth Anthropic (429)",
   "logs.detail.attempt.recovery.image413": "Charge utile d’image trop volumineuse (413)",
