@@ -263,8 +263,25 @@ export interface OcxProviderConfig {
    * Multi-key pool (API-key twin of OAuth multiauth). `apiKey` always mirrors the ACTIVE
    * entry so routing stays single-key; managed via /api/providers/keys. A legacy bare
    * `apiKey` seeds a one-entry pool on first management touch.
+   *
+   * `cookie` (optional, Genspark only): a browser-session cookie used EXCLUSIVELY for
+   * credit-balance telemetry against Genspark's payment endpoint. It is never sent to
+   * the LLM proxy or any other host, never logged, and never returned by management
+   * APIs (presence is reported as a boolean). Inference never requires it.
    */
-  apiKeyPool?: Array<{ id: string; key: string; label?: string; addedAt?: number }>;
+  apiKeyPool?: Array<{ id: string; key: string; label?: string; addedAt?: number; cookie?: string }>;
+  /**
+   * How the pool picks the key for a NEW request (reactive failover always applies on
+   * top, whatever the strategy):
+   * - "failover" (default): stick with the active key until a key-attributable failure
+   *   rotates it. Requests never proactively switch keys.
+   * - "round-robin": advance through eligible keys per request (in-memory cursor; not
+   *   persisted). Cooldown/exhausted keys are skipped.
+   * - "quota-aware": like failover, but a key whose Genspark credit telemetry reports a
+   *   fresh zero balance is proactively swapped out before the request is sent. Keys with
+   *   unknown credit stay eligible (a cookie is never required).
+   */
+  apiKeyPoolStrategy?: "failover" | "round-robin" | "quota-aware";
   defaultModel?: string;
   models?: string[];
   /**

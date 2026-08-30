@@ -533,6 +533,31 @@ under `provider.apiKeyPool`, makes it active, and mirrors it to `provider.apiKey
 adapters continue to read the same field as before. The same dropdown can switch or remove keys; the
 management API is `/api/providers/keys` and returns masked keys only.
 
+With two or more keys in the pool, the proxy fails over automatically: when the upstream rejects a
+request with a key-attributable error before any output was streamed — a 429 rate limit, a 402
+quota/payment error, a 401 (or a 403 that clearly names the credential), or a Genspark
+credit-exhaustion message — the failed key is placed in cooldown and the **same request is replayed
+on the next usable key**, so the caller receives an answer instead of the error. Rate-limited keys
+cool down per `Retry-After` (default 60 s, capped at 10 min); quota-drained and rejected keys cool
+for 30 minutes. Each request tries a key at most once, so a pool of N keys never produces more than
+N attempts; when every key is exhausted the original upstream error is returned. Rotations appear in
+the request log's attempt timeline as `key-429`, `key-quota`, or `key-auth`.
+
+`apiKeyPoolStrategy` controls which key a NEW request starts on: `failover` (default) sticks with
+the active key, `round-robin` cycles requests across eligible keys (in-memory cursor — nothing is
+written to disk per request), and `quota-aware` proactively skips keys whose Genspark credit
+telemetry reports a fresh zero balance. Reactive failover applies on top of every strategy.
+
+**Genspark credit telemetry (optional).** A Genspark pool entry may carry a browser-session cookie
+(`PUT /api/providers/keys/cookie`) used exclusively to query
+`GET /api/payment/get_credit_balance` — the API key alone does not authenticate that endpoint. The
+cookie is write-only (list responses report `hasCookie`, never the value), is never sent to the LLM
+proxy or any other host, and is never required: a missing/expired cookie degrades the key to
+`unknown` credit and it stays fully eligible. Balances are cached for ~45 s and surfaced per key at
+`GET /api/providers/keys/credit` (`healthy` / `exhausted` / `unknown`); rotation prefers keys not
+known to be drained but will still try a "drained" key when it is the only option left, so stale
+telemetry can never make failover worse than having none.
+
 ### Switching accounts from the terminal
 
 Use `ocx account list`, `ocx account current`, and `ocx account use` to inspect or switch the same

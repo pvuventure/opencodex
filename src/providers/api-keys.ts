@@ -17,6 +17,8 @@ export interface ProviderApiKeyInfo {
   masked: string;
   active: boolean;
   addedAt?: number;
+  /** Presence only — the raw telemetry cookie NEVER leaves the process (Genspark credit). */
+  hasCookie?: boolean;
 }
 
 function isEnvReference(value: string): boolean {
@@ -74,6 +76,7 @@ export function listProviderApiKeys(config: OcxConfig, name: string): { activeId
       masked: maskApiKey(entry.key),
       active: entry.id === activeId,
       ...(entry.addedAt !== undefined ? { addedAt: entry.addedAt } : {}),
+      ...(entry.cookie ? { hasCookie: true } : {}),
     })),
   };
 }
@@ -117,6 +120,25 @@ export function setProviderApiKeyLabel(config: OcxConfig, name: string, id: stri
   if (!entry) return false;
   if (label) entry.label = label;
   else delete entry.label;
+  saveConfigPreservingClaudeCode(config);
+  return true;
+}
+
+/**
+ * Attach or clear a key's Genspark credit-telemetry cookie. The cookie is stored alongside
+ * the pool entry in config.json (the same file that already holds the API keys, hardened by
+ * the existing secret-file ACL/permission path) and is used ONLY against Genspark's payment
+ * endpoint — never for inference and never echoed back by management APIs.
+ */
+export function setProviderApiKeyCookie(config: OcxConfig, name: string, id: string, cookie: string | undefined): boolean {
+  const provider = config.providers[name];
+  if (!provider || !isKeyAuthProvider(provider)) return false;
+  const entry = ensurePool(provider).find(e => e.id === id);
+  if (!entry) return false;
+  const sanitized = cookie === undefined ? undefined : sanitizeApiKeyValue(cookie);
+  if (cookie !== undefined && !sanitized) return false;
+  if (sanitized) entry.cookie = sanitized;
+  else delete entry.cookie;
   saveConfigPreservingClaudeCode(config);
   return true;
 }

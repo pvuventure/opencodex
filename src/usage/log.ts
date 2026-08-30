@@ -47,6 +47,8 @@ export type AttemptRecoveryKind =
   | "connection-reset"
   | "oauth-401"
   | "key-429"
+  | "key-quota"
+  | "key-auth"
   | "rate-limit-429"
   | "anthropic-oauth-429"
   | "oauth-account-429"
@@ -258,6 +260,8 @@ const ATTEMPT_RECOVERY_KINDS = new Set<AttemptRecoveryKind>([
   "connection-reset",
   "oauth-401",
   "key-429",
+  "key-quota",
+  "key-auth",
   "rate-limit-429",
   "anthropic-oauth-429",
   "oauth-account-429",

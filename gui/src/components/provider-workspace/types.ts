@@ -60,6 +60,8 @@ export type ApiKeyRow = {
   label?: string;
   masked: string;
   active: boolean;
+  /** Genspark credit telemetry: a session cookie is stored for this key (presence only). */
+  hasCookie?: boolean;
 };
 
 export type LoginHint = {
@@ -83,6 +85,8 @@ export interface ProviderAuthHandlers {
   onSwitchApiKey: (provider: string, entry: ApiKeyRow) => void | Promise<void>;
   onRemoveApiKey: (provider: string, entry: ApiKeyRow) => void | Promise<void>;
   onEditAlias: (provider: string, type: "oauth" | "api-key", id: string, current?: string) => void | Promise<void>;
+  /** Re-pull the API-key pool list (e.g. after a cookie attach changes hasCookie). */
+  onRefreshKeys?: (provider: string) => void | Promise<void>;
 }
 
 export type ProviderUpdatePatch = {

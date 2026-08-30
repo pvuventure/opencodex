@@ -241,6 +241,7 @@ export const MANAGEMENT_ROUTES: readonly ManagementRoute[] = [
   { method: "GET", path: "/api/oauth/providers", module: "server/management/oauth-account-routes", mutates: false },
   { method: "GET", path: "/api/oauth/status", module: "server/management/oauth-account-routes", mutates: false },
   { method: "GET", path: "/api/providers/keys", module: "server/management/oauth-account-routes", mutates: false },
+  { method: "GET", path: "/api/providers/keys/credit", module: "server/management/oauth-account-routes", mutates: false, exempt: { reason: "deferred-verb", why: "Genspark credit snapshot has no CLI verb yet; the GUI Providers page is the consumer. Verb owed by phase 3 of the key-failover plan.", owner: "genspark-key-failover-phase-3", ownerDoc: "devlog/_plan/260830_genspark_key_failover/000_plan.md" } },
   { method: "PATCH", path: "/api/keys", module: "server/management/oauth-account-routes", mutates: true },
   { method: "PATCH", path: "/api/oauth/accounts/pool", module: "server/management/oauth-account-routes", mutates: true },
   { method: "POST", path: "/api/keys", module: "server/management/oauth-account-routes", mutates: true },
@@ -256,6 +257,7 @@ export const MANAGEMENT_ROUTES: readonly ManagementRoute[] = [
   { method: "PUT", path: "/api/oauth/accounts/pool", module: "server/management/oauth-account-routes", mutates: true },
   { method: "PUT", path: "/api/providers/keys/active", module: "server/management/oauth-account-routes", mutates: true },
   { method: "PUT", path: "/api/providers/keys/alias", module: "server/management/oauth-account-routes", mutates: true },
+  { method: "PUT", path: "/api/providers/keys/cookie", module: "server/management/oauth-account-routes", mutates: true, exempt: { reason: "deferred-verb", why: "Cookie attach/clear has no CLI verb yet; a secret-bearing argv is the wrong first surface (stdin-based verb planned). Owed by phase 3 of the key-failover plan.", owner: "genspark-key-failover-phase-3", ownerDoc: "devlog/_plan/260830_genspark_key_failover/000_plan.md" } },
   // server/management/provider-routes
   { method: "DELETE", path: "/api/providers", module: "server/management/provider-routes", mutates: true },
   { method: "GET", path: "/api/provider-context-caps", module: "server/management/provider-routes", mutates: false },

@@ -3,7 +3,7 @@
  * embedding for the workspace Settings tab (WP091). Consumes WP040+WP060
  * handlers via props-down; no internal auth machinery.
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n/shared";
 import { IconLock, IconTrash } from "../../icons";
 import type { WorkspaceItem } from "../../provider-workspace/catalog";
@@ -37,6 +37,21 @@ const QUOTA_ENRICH_RESERVE_MS = 4_000;
 const COCKPIT_IMPORT_MAX_BYTES = 256 * 1024;
 const EMPTY_OAUTH_ACCOUNTS: OAuthAccountRow[] = [];
 const EMPTY_API_KEYS: ApiKeyRow[] = [];
+
+/** Per-key Genspark credit snapshot from GET /api/providers/keys/credit. */
+type KeyCreditEntry = { balance: number | null; checkedAt: number; state: "healthy" | "exhausted" | "unknown" };
+
+/** Credit telemetry only exists for Genspark destinations (by name or host). */
+function isGensparkWorkspaceItem(item: { name: string; baseUrl?: string }): boolean {
+  if (item.name.trim().toLowerCase() === "genspark") return true;
+  if (!item.baseUrl) return false;
+  try {
+    const host = new URL(item.baseUrl).hostname.toLowerCase();
+    return host === "genspark.ai" || host.endsWith(".genspark.ai");
+  } catch {
+    return false;
+  }
+}
 
 function XaiResponsesOptInControl({
   initialState,
@@ -187,6 +202,60 @@ export default function ProviderAuthPanel({
   const [addingKey, setAddingKey] = useState(false);
   const [newKey, setNewKey] = useState("");
   const [keyBusy, setKeyBusy] = useState(false);
+  const [keyCredits, setKeyCredits] = useState<Record<string, KeyCreditEntry> | null>(null);
+  const [creditBusy, setCreditBusy] = useState(false);
+  const [cookieMsg, setCookieMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const isGenspark = isGensparkWorkspaceItem(item);
+  const anyCookie = keys.some(entry => entry.hasCookie);
+
+  // The snapshot fetch time anchors the "checked Ns ago" tooltip: computed once per fetch
+  // (not per render — Date.now() during render violates react-compiler purity).
+  const [creditsFetchedAt, setCreditsFetchedAt] = useState(0);
+  const fetchKeyCredits = useCallback(async () => {
+    if (!isGenspark) return;
+    setCreditBusy(true);
+    try {
+      const res = await fetch(`${apiBase}/api/providers/keys/credit?name=${encodeURIComponent(item.name)}`);
+      if (res.ok) {
+        const data = await res.json() as { credits?: Record<string, KeyCreditEntry> };
+        setKeyCredits(data.credits ?? {});
+        setCreditsFetchedAt(Date.now());
+      }
+    } catch { /* telemetry only; the pool list stays useful without it */ }
+    setCreditBusy(false);
+  }, [apiBase, isGenspark, item.name]);
+
+  // Load the credit snapshot once whenever a Genspark pool with cookies is on screen.
+  // Deferred a tick so the fetch's synchronous busy-flag write never lands inside the
+  // effect body itself (react-compiler EffectSetState).
+  useEffect(() => {
+    if (!isGenspark || !anyCookie) return;
+    const timer = window.setTimeout(() => void fetchKeyCredits(), 0);
+    return () => window.clearTimeout(timer);
+  }, [isGenspark, anyCookie, fetchKeyCredits]);
+
+  const editKeyCookie = async (entry: ApiKeyRow) => {
+    const entered = window.prompt(t("pws.cookiePrompt"), "");
+    if (entered === null) return;
+    const cookie = entered.trim();
+    try {
+      const res = await fetch(`${apiBase}/api/providers/keys/cookie`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: item.name, id: entry.id, cookie: cookie || null }),
+      });
+      if (!res.ok) {
+        setCookieMsg({ text: t("pws.cookieSaveFailed"), ok: false });
+        return;
+      }
+      setCookieMsg({ text: cookie ? t("pws.cookieSaved") : t("pws.cookieCleared"), ok: true });
+      // The list's hasCookie flag comes from the pool endpoint; re-pull both surfaces.
+      await authHandlers?.onRefreshKeys?.(item.name);
+      void fetchKeyCredits();
+    } catch {
+      setCookieMsg({ text: t("pws.cookieSaveFailed"), ok: false });
+    }
+  };
   const [importBusy, setImportBusy] = useState(false);
   const [importStatus, setImportStatus] = useState<"idle" | "invalid" | "failed" | "complete">("idle");
   const [importResult, setImportResult] = useState<CockpitImportResult | null>(null);
@@ -551,7 +620,19 @@ export default function ProviderAuthPanel({
           <>
             {keys.length > 0 && (
               <ul className="pwi-auth-list">
-                {keys.map(entry => (
+                {keys.map(entry => {
+                  const credit = isGenspark ? keyCredits?.[entry.id] : undefined;
+                  const checkedAgo = credit
+                    ? t("pws.creditChecked", { ago: String(Math.max(0, Math.round((creditsFetchedAt - credit.checkedAt) / 1000))) })
+                    : "";
+                  const creditBadge = credit && entry.hasCookie
+                    ? credit.state === "exhausted"
+                      ? <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }} title={checkedAgo}>{t("pws.creditBalance")}: {credit.balance ?? 0} · {t("pws.creditExhausted")}</span>
+                      : credit.state === "healthy"
+                        ? <span className="badge badge-green" title={checkedAgo}>{t("pws.creditBalance")}: {credit.balance}</span>
+                        : <span className="badge badge-muted" title={checkedAgo}>{t("pws.creditBalance")}: {t("pws.creditUnknown")}</span>
+                    : null;
+                  return (
                   <li key={entry.id} className={`pwi-auth-row${entry.active ? " pwi-auth-row--active" : ""}`}>
                     <button type="button" className="pwi-auth-row-main"
                       onClick={() => void authHandlers.onSwitchApiKey(item.name, entry)}
@@ -561,8 +642,15 @@ export default function ProviderAuthPanel({
                         <span className="pwi-auth-row-label">{entry.label ?? entry.masked}</span>
                         {entry.label && <code className="pwi-auth-row-secondary">{entry.masked} · {t("prov.accountId")}: {entry.id}</code>}
                       </span>
+                      {creditBadge}
                       {entry.active && <span className="badge badge-primary">{t("prov.accountActive")}</span>}
                     </button>
+                    {isGenspark && (
+                      <button type="button" className="btn btn-ghost btn-sm"
+                        onClick={() => void editKeyCookie(entry)}>
+                        {entry.hasCookie ? t("pws.cookieUpdate") : t("pws.cookieSet")}
+                      </button>
+                    )}
                     <button type="button" className="btn btn-ghost btn-sm"
                       onClick={() => void authHandlers.onEditAlias(item.name, "api-key", entry.id, entry.label)}>
                       {t("prov.editAlias")}
@@ -574,8 +662,22 @@ export default function ProviderAuthPanel({
                       <IconTrash style={{ width: 13, height: 13 }} aria-hidden="true" />
                     </button>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
+            )}
+            {isGenspark && anyCookie && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void fetchKeyCredits()} disabled={creditBusy}>
+                  {creditBusy ? t("pws.saving") : t("pws.creditRefresh")}
+                </button>
+                {cookieMsg && <span style={{ fontSize: 12, color: cookieMsg.ok ? "var(--green)" : "var(--red)" }}>{cookieMsg.text}</span>}
+              </div>
+            )}
+            {isGenspark && !anyCookie && cookieMsg && (
+              <div style={{ marginTop: 4 }}>
+                <span style={{ fontSize: 12, color: cookieMsg.ok ? "var(--green)" : "var(--red)" }}>{cookieMsg.text}</span>
+              </div>
             )}
             {addingKey ? (
               <div className="pwi-auth-add-key">

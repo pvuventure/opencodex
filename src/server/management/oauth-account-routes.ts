@@ -559,7 +559,49 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     clearProviderQuotaCache();
     const { clearKeyCooldowns } = await import("../../providers/key-failover");
     clearKeyCooldowns(name); // manual key management resets 429 cooldown state
+    const { clearGensparkCreditCache } = await import("../../providers/genspark-credit");
+    clearGensparkCreditCache(name, id);
     return jsonResponse({ ok: true });
+  }
+  // Attach/clear a Genspark credit-telemetry cookie on one pool entry. The raw cookie is
+  // write-only: list responses report `hasCookie` presence, never the value.
+  if (url.pathname === "/api/providers/keys/cookie" && req.method === "PUT") {
+    const body = await readManagementJsonBodyOr(req, {}) as { name?: unknown; id?: unknown; cookie?: unknown };
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    if (!name || !isValidProviderName(name) || !hasOwnProvider(config.providers, name)) return jsonResponse({ error: "unknown provider" }, 404);
+    if (!id) return jsonResponse({ error: "missing id" }, 400);
+    if (body.cookie !== undefined && body.cookie !== null && typeof body.cookie !== "string") {
+      return jsonResponse({ error: "cookie must be a string or null" }, 400);
+    }
+    const cookie = typeof body.cookie === "string" && body.cookie.trim() ? body.cookie : undefined;
+    const { setProviderApiKeyCookie } = await import("../../providers/api-keys");
+    if (!setProviderApiKeyCookie(config, name, id, cookie)) {
+      return jsonResponse({ error: cookie !== undefined && !cookie.trim() ? "invalid cookie" : "key not found" }, 404);
+    }
+    const { clearGensparkCreditCache } = await import("../../providers/genspark-credit");
+    clearGensparkCreditCache(name, id); // stale telemetry from the previous cookie must not linger
+    return jsonResponse({ ok: true, name, id, hasCookie: cookie !== undefined });
+  }
+  // Credit telemetry snapshot for a provider's key pool (Genspark). Probes only entries
+  // that carry a cookie; everything else reports `unknown`. Values are cached (short TTL)
+  // so the GUI can poll without hammering the payment endpoint.
+  if (url.pathname === "/api/providers/keys/credit" && req.method === "GET") {
+    const name = (url.searchParams.get("name") ?? "").trim();
+    if (!name || !isValidProviderName(name) || !hasOwnProvider(config.providers, name)) return jsonResponse({ error: "unknown provider" }, 404);
+    const provider = config.providers[name]!;
+    const { refreshGensparkProviderCredits, getGensparkCreditEntry } = await import("../../providers/genspark-credit");
+    const now = Date.now();
+    // Serve fresh cache without probing; probe (deduped, TTL-cached) only when stale.
+    const pool = provider.apiKeyPool ?? [];
+    const allFresh = pool.every(entry => !entry.cookie || getGensparkCreditEntry(name, entry.id, now));
+    const credits = allFresh
+      ? Object.fromEntries(pool.map(entry => {
+        const cached = getGensparkCreditEntry(name, entry.id, now);
+        return [entry.id, cached ?? { balance: null, checkedAt: now, state: "unknown" }];
+      }))
+      : await refreshGensparkProviderCredits(name, provider, { now });
+    return jsonResponse({ name, credits });
   }
 
   // ---------------------------------------------------------------------------
